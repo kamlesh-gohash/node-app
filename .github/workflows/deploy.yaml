@@ -1,4 +1,4 @@
-name: Deploy to EKS
+name: Deploy to EC2 and EKS
 
 on:
   push:
@@ -34,15 +34,27 @@ jobs:
           docker tag node-app:latest $ECR_REPO:latest
           docker push $ECR_REPO:latest
 
+      - name: Deploy to EC2 via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REPO
+            docker pull $ECR_REPO:latest
+            docker stop node-app || true && docker rm node-app || true
+            docker run -d --name node-app -p 80:3000 $ECR_REPO:latest
+
       - name: Update kubeconfig for EKS
         run: |
           aws eks update-kubeconfig --name $CLUSTER_NAME --region $AWS_REGION
 
-      - name: Apply Kubernetes Manifests
+      - name: Apply Kubernetes Manifests to EKS
         run: |
           kubectl apply -f deployment.yaml
           kubectl apply -f service.yaml
 
-      - name: Restart Deployment (optional)
+      - name: Restart EKS Deployment
         run: |
           kubectl rollout restart deployment node-app
